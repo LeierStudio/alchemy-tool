@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>煉金配方動態搜尋器</title>
+    <style>
+        body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; margin: 20px; background-color: #f4f7f6; color: #333; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h2 { color: #2c3e50; text-align: center; margin-top: 0; border-bottom: 2px solid #5d5cde; padding-bottom: 10px; }
+        
+        .status-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 13px; }
+        #loadStatus { color: #666; }
+        .sync-tag { background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 10px; font-weight: bold; }
+
+        .search-box { position: relative; }
+        input { width: 100%; padding: 15px; box-sizing: border-box; margin-bottom: 20px; border: 2px solid #ddd; border-radius: 8px; font-size: 18px; outline: none; transition: border-color 0.3s; }
+        input:focus { border-color: #5d5cde; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; overflow: hidden; border-radius: 8px; }
+        th, td { border: 1px solid #eee; padding: 15px; text-align: left; }
+        th { background-color: #5d5cde; color: white; font-weight: 500; }
+        tr:nth-child(even) { background-color: #f9f9ff; }
+        tr:hover { background-color: #f1f0ff; }
+
+        .loading { text-align: center; padding: 40px; color: #5d5cde; font-size: 18px; font-weight: bold; }
+        .no-result { text-align: center; padding: 20px; color: #999; }
+        
+        @media (max-width: 600px) {
+            th, td { padding: 10px; font-size: 14px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>煉金配方動態搜尋器</h2>
+    
+    <div class="status-bar">
+        <span id="loadStatus">正在讀取雲端資料...</span>
+        <span class="sync-tag">即時同步中</span>
+    </div>
+
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="輸入產物名稱搜尋（例如：火藥、硫磺）..." onkeyup="filterData()">
+    </div>
+    
+    <div id="loading" class="loading">⚙️ 正在從 Google Sheets 獲取最新配方...</div>
+    
+    <table id="recipeTable" style="display:none;">
+        <thead>
+            <tr>
+                <th>材料 A</th>
+                <th>材料 B</th>
+                <th>材料 C</th>
+                <th>產物</th>
+            </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+    </table>
+    <div id="noResult" class="no-result" style="display:none;">找不到符合的配方</div>
+</div>
+
+<script>
+    // 這是您的 Google 表格發佈為 CSV 的專用連結
+    const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTxnWlX_iHnD7a-5pN5q8yklKp4AobN2oJ8-UnD9XoO29j4nt4UqsOQFfiRM7JfrVGbbTArycBvDgk1/pub?output=csv'; 
+    
+    let allRecipes = [];
+
+    // 初始化讀取資料
+    async function init() {
+        try {
+            // 加上時間戳記防止快取舊資料
+            const response = await fetch(csvUrl + '&t=' + new Date().getTime());
+            if (!response.ok) throw new Error('網路回應不正確');
+            const data = await response.text();
+            
+            allRecipes = parseCSV(data);
+            
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('loadStatus').innerText = '最後同步時間：' + new Date().toLocaleTimeString();
+        } catch (error) {
+            console.error(error);
+            document.getElementById('loading').innerHTML = 
+                '<span style="color:red;">❌ 資料讀取失敗</span><br>' +
+                '<small>請確保表格已「發佈到網路」並選擇 CSV 格式。<br>若在本地開啟，請嘗試上傳至網頁空間或使用無痕模式。</small>';
+        }
+    }
+
+    // 解析 CSV 內容
+    function parseCSV(csv) {
+        // 處理不同系統的換行符號
+        const lines = csv.split(/\r?\n/);
+        const result = [];
+        
+        // 從第 2 行開始抓取 (i=1)，跳過標題列
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i].trim()) continue;
+            
+            // 簡易處理 CSV 逗號分割 (若資料內含逗號需更複雜的 Regex)
+            const cols = lines[i].split(',');
+            if (cols.length >= 4) {
+                result.push({
+                    a: cols[0] ? cols[0].trim() : '',
+                    b: cols[1] ? cols[1].trim() : '',
+                    c: cols[2] ? cols[2].trim() : '',
+                    product: cols[3] ? cols[3].trim() : ''
+                });
+            }
+        }
+        return result;
+    }
+
+    // 過濾搜尋功能
+    function filterData() {
+        const input = document.getElementById('searchInput').value.trim().toLowerCase();
+        const resultBody = document.getElementById('resultBody');
+        const table = document.getElementById('recipeTable');
+        const noResult = document.getElementById('noResult');
+        
+        resultBody.innerHTML = '';
+
+        if (input === "") {
+            table.style.display = "none";
+            noResult.style.display = "none";
+            return;
+        }
+
+        // 搜尋產物名稱
+        const filtered = allRecipes.filter(r => r.product.toLowerCase().includes(input));
+
+        if (filtered.length > 0) {
+            filtered.forEach(r => {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td>${r.a}</td><td>${r.b}</td><td>${r.c}</td><td><strong>${r.product}</strong></td>`;
+                resultBody.appendChild(row);
+            });
+            table.style.display = "table";
+            noResult.style.display = "none";
+        } else {
+            table.style.display = "none";
+            noResult.style.display = "block";
+        }
+    }
+
+    window.onload = init;
+</script>
+
+</body>
+</html>
